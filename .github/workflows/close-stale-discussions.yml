@@ -1,28 +1,104 @@
-name: Close Labeled Discussions Weekly
+name: Close Stale GH Discussions
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * *' 
 
 jobs:
-  close-discussions:  
+  close-discussions:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Close Stale Discussions
+        uses: actions/github-script@v7
         with:
-          node-version: '20'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Configuration defined directly in the script
+            const LABEL = 'needs-confirmation';
+            const TEAM_MEMBERS = ['nurul3101']; // Replace with your team usernames
+            const CLOSING_MESSAGE = 'This discussion is being closed as part of our weekly cleanup process. Feel free to reopen if needed!';
 
-      - name: Install dependencies
-        run: npm install
+            // Get repository context
+            const { owner, repo } = context.repo;
 
-      - name: Compile TypeScript
-        run: npx tsc close-discussions.ts --outDir dist
+            // Calculate date from one week ago
+            const now = new Date();
+            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-      - name: Run script to close discussions
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node dist/close-discussions.js
+            // GraphQL query to fetch open discussions with the label
+            const query = `
+              query {
+                repository(owner: "${owner}", name: "${repo}") {
+                  discussions(first: 100, states: OPEN) {
+                    edges {
+                      node {
+                        id
+                        number
+                        title
+                        createdAt
+                        labels(first: 10) {
+                          edges {
+                            node {
+                              name
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            try {
+              // Fetch discussions
+              const response = await github.graphql(query);
+              const discussions = response.repository.discussions.edges
+                .map(edge => edge.node)
+                .filter(discussion => {
+                  const createdAt = new Date(discussion.createdAt);
+                  const hasLabel = discussion.labels.edges.some(labelEdge => labelEdge.node.name === LABEL);
+                  return hasLabel && createdAt >= 0;//oneWeekAgo;
+                });
+
+              // Process each discussion
+              for (const discussion of discussions) {
+                // Fetch the latest comment
+                const comments = await github.rest.discussions.listComments({
+                  owner,
+                  repo,
+                  discussion_number: discussion.number,
+                  per_page: 1,
+                  page: 1,
+                });
+
+                const lastComment = comments.data.length > 0 ? comments.data[0] : null;
+
+                // Skip if the latest comment is from a team member
+                if (lastComment && TEAM_MEMBERS.includes(lastComment.author.login)) {
+                  console.log(`Skipping ${discussion.title} - last reply by team member ${lastComment.author.login}`);
+                  continue;
+                }
+
+                // Post closing message
+                await github.rest.discussions.createComment({
+                  owner,
+                  repo,
+                  discussion_number: discussion.number,
+                  body: CLOSING_MESSAGE,
+                });
+
+                // Close the discussion
+                await github.rest.discussions.update({
+                  owner,
+                  repo,
+                  discussion_number: discussion.number,
+                  state_reason: 'RESOLVED', // Closes the discussion
+                });
+
+                console.log(`Closed discussion: ${discussion.title}`);
+              }
+            } catch (error) {
+              console.error('Error:', error.message || error);
+              core.setFailed('Script failed');
+            }
