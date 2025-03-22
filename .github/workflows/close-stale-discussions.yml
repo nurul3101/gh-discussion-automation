@@ -1,115 +1,161 @@
-name: Close Stale GH Discussions
+name: Auto Close Stale Discussions
 
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:  # Manual trigger for testing
+    - cron: '0 0 * * *'  # Runs daily at midnight UTC
 
 jobs:
   close-discussions:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Close Stale Discussions
-        uses: actions/github-script@v7
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            // Configuration defined directly in the script
-            const LABEL = 'needs-confirmation';
-            const TEAM_MEMBERS = ['nurul3101']; // Replace with your team usernames
-            const CLOSING_MESSAGE = 'This discussion is being closed as part of our weekly cleanup process. Feel free to reopen if needed!';
-            const PREVIEW_HEADER = 'application/vnd.github.echo-preview+json';
+          node-version: '16'
 
-            // Get repository context
-            const { owner, repo } = context.repo;
+      - name: Install dependencies
+        run: |
+          npm install @octokit/rest ts-node typescript
 
-            // Calculate date from one week ago
-            const now = new Date();
-            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      - name: Run inline Discussion Cleanup Script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEAM_HANDLES: "nurul3101"  # Replace with your team GitHub handles (comma-separated)
+          CLOSING_MESSAGE: "Closing this discussion due to inactivity. Please reopen if needed."
+        run: |
+          cat > close-discussions.ts <<'EOF'
+          import { Octokit } from "@octokit/rest";
 
-            // GraphQL query to fetch open discussions with the label
-            const query = `
-              query {
-                repository(owner: "${owner}", name: "${repo}") {
-                  discussions(first: 100, states: OPEN) {
-                    edges {
-                      node {
-                        id
-                        number
-                        title
-                        createdAt
-                        labels(first: 10) {
-                          edges {
-                            node {
-                              name
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            `;
+          const OWNER = "prisma";
+          const REPO = "prisma";
+          const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+          async function run() {
+            const token = process.env.GITHUB_TOKEN;
+            if (!token) {
+              console.error("GITHUB_TOKEN not set");
+              process.exit(1);
+            }
+
+            const teamHandlesEnv = process.env.TEAM_HANDLES;
+            if (!teamHandlesEnv) {
+              console.error("TEAM_HANDLES environment variable not set");
+              process.exit(1);
+            }
+            const teamHandles = teamHandlesEnv.split(",").map(handle => handle.trim());
+            const closingMessage = process.env.CLOSING_MESSAGE || "Closing discussion due to inactivity.";
+
+            const octokit = new Octokit({
+              auth: token,
+              userAgent: "prisma/auto-close-discussions",
+            });
 
             try {
-              // Fetch discussions
-              const response = await github.graphql(query);
-              const discussions = response.repository.discussions.edges
-                .map(edge => edge.node)
-                .filter(discussion => {
-                  const createdAt = new Date(discussion.createdAt);
-                  const hasLabel = discussion.labels.edges.some(labelEdge => labelEdge.node.name === LABEL);
-                  return hasLabel && createdAt >= 0;
-                });
+              // 1. Fetch all discussions (with preview header)
+              const discussionsResponse = await octokit.request("GET /repos/{owner}/{repo}/discussions", {
+                owner: OWNER,
+                repo: REPO,
+                headers: {
+                  accept: "application/vnd.github.echo-preview+json"
+                }
+              });
+              const discussions = discussionsResponse.data as any[];
 
-              // Process each discussion
-              for (const discussion of discussions) {
-                // Fetch the latest comment using the preview header
-                const commentsResponse = await github.request('GET /repos/{owner}/{repo}/discussions/{discussion_number}/comments', {
-                  owner,
-                  repo,
-                  discussion_number: discussion.number,
-                  per_page: 1,
-                  page: 1,
+              // 2. Filter open discussions that have target labels
+              const targetLabels = ["needs-information", "needs-confirmation"];
+              const filteredDiscussions = discussions.filter(discussion => {
+                if (discussion.state !== "open") return false;
+                if (!discussion.labels || discussion.labels.length === 0) return false;
+                const labels = discussion.labels.map((label: any) => label.name);
+                return targetLabels.some(target => labels.includes(target));
+              });
+
+              console.log(`Found ${filteredDiscussions.length} open discussions with target labels.`);
+
+              // 3. Process each filtered discussion
+              for (const discussion of filteredDiscussions) {
+                const discussionNumber = discussion.number;
+                console.log(`Processing discussion #${discussionNumber}: ${discussion.title}`);
+
+                // Get all comments for the discussion
+                const commentsResponse = await octokit.request("GET /repos/{owner}/{repo}/discussions/{discussion_number}/comments", {
+                  owner: OWNER,
+                  repo: REPO,
+                  discussion_number: discussionNumber,
                   headers: {
-                    accept: PREVIEW_HEADER
+                    accept: "application/vnd.github.echo-preview+json"
                   }
                 });
-                const comments = commentsResponse.data;
-                const lastComment = comments.length > 0 ? comments[0] : null;
-
-                // Skip if the latest comment is from a team member
-                if (lastComment && TEAM_MEMBERS.includes(lastComment.author.login)) {
-                  console.log(`Skipping "${discussion.title}" - last reply by team member ${lastComment.author.login}`);
+                const comments = commentsResponse.data as any[];
+                if (comments.length === 0) {
+                  console.log("No comments found, skipping.");
                   continue;
                 }
 
-                // Post closing message with preview header
-                await github.request('POST /repos/{owner}/{repo}/discussions/{discussion_number}/comments', {
-                  owner,
-                  repo,
-                  discussion_number: discussion.number,
-                  body: CLOSING_MESSAGE,
-                  headers: {
-                    accept: PREVIEW_HEADER
-                  }
-                });
+                // Check last comment: must be by a team member and older than one week
+                const lastComment = comments[comments.length - 1];
+                const lastCommentDate = new Date(lastComment.created_at);
+                const now = new Date();
 
-                // Close the discussion by updating it using the preview header
-                await github.request('PATCH /repos/{owner}/{repo}/discussions/{discussion_number}', {
-                  owner,
-                  repo,
-                  discussion_number: discussion.number,
-                  state_reason: 'RESOLVED',
-                  headers: {
-                    accept: PREVIEW_HEADER
-                  }
-                });
+                if (
+                  teamHandles.includes(lastComment.user.login) &&
+                  (now.getTime() - lastCommentDate.getTime() > ONE_WEEK_MS)
+                ) {
+                  console.log(`Discussion #${discussionNumber} qualifies for closure.`);
 
-                console.log(`Closed discussion: "${discussion.title}"`);
+                  // 4. Post closing comment
+                  await octokit.request("POST /repos/{owner}/{repo}/discussions/{discussion_number}/comments", {
+                    owner: OWNER,
+                    repo: REPO,
+                    discussion_number: discussionNumber,
+                    headers: {
+                      accept: "application/vnd.github.echo-preview+json"
+                    },
+                    body: closingMessage,
+                  });
+                  console.log(`Posted closing comment on discussion #${discussionNumber}.`);
+
+                  // 5. Remove target labels
+                  const remainingLabels = discussion.labels
+                    .map((label: any) => label.name)
+                    .filter((labelName: string) => !targetLabels.includes(labelName));
+                  await octokit.request("PATCH /repos/{owner}/{repo}/discussions/{discussion_number}", {
+                    owner: OWNER,
+                    repo: REPO,
+                    discussion_number: discussionNumber,
+                    headers: {
+                      accept: "application/vnd.github.echo-preview+json"
+                    },
+                    labels: remainingLabels,
+                  });
+                  console.log(`Removed target labels from discussion #${discussionNumber}.`);
+
+                  // 6. Close the discussion (using closed state and reason)
+                  await octokit.request("PATCH /repos/{owner}/{repo}/discussions/{discussion_number}", {
+                    owner: OWNER,
+                    repo: REPO,
+                    discussion_number: discussionNumber,
+                    headers: {
+                      accept: "application/vnd.github.echo-preview+json"
+                    },
+                    state: "closed",
+                    state_reason: "resolved",
+                  });
+                  console.log(`Closed discussion #${discussionNumber}.`);
+                } else {
+                  console.log(`Discussion #${discussionNumber} does not qualify for closure.`);
+                }
               }
             } catch (error) {
-              console.error('Error:', error.message || error);
-              core.setFailed('Script failed');
+              console.error("Error processing discussions:", error);
             }
+          }
+
+          run();
+          EOF
+
+          npx ts-node close-discussions.ts
