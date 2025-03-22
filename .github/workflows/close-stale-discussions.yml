@@ -3,7 +3,7 @@ name: Auto Close Stale Discussions
 on:
   schedule:
     - cron: '0 0 * * *'  # Runs daily at midnight UTC
-    workflow_dispatch: 
+  workflow_dispatch:     # Enables manual run from the Actions tab
 
 jobs:
   close-discussions:
@@ -25,7 +25,7 @@ jobs:
       - name: Run inline Discussion Cleanup Script
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TEAM_HANDLES: "nurul3101"  # Replace with your team GitHub handles (comma-separated)
+          TEAM_HANDLES: "nurul3101"  # Replace with your comma-separated GitHub handles
           CLOSING_MESSAGE: "Closing this discussion due to inactivity. Please reopen if needed."
         run: |
           cat > close-discussions.ts <<'EOF'
@@ -56,7 +56,7 @@ jobs:
             });
 
             try {
-              // 1. Fetch all discussions (with preview header)
+              // 1. Fetch all discussions (using preview header)
               const discussionsResponse = await octokit.request("GET /repos/{owner}/{repo}/discussions", {
                 owner: OWNER,
                 repo: REPO,
@@ -66,7 +66,7 @@ jobs:
               });
               const discussions = discussionsResponse.data as any[];
 
-              // 2. Filter open discussions that have target labels
+              // 2. Filter open discussions that have the target labels
               const targetLabels = ["needs-information", "needs-confirmation"];
               const filteredDiscussions = discussions.filter(discussion => {
                 if (discussion.state !== "open") return false;
@@ -97,7 +97,7 @@ jobs:
                   continue;
                 }
 
-                // Check last comment: must be by a team member and older than one week
+                // Check if the last comment is by a team member and older than one week
                 const lastComment = comments[comments.length - 1];
                 const lastCommentDate = new Date(lastComment.created_at);
                 const now = new Date();
@@ -108,7 +108,7 @@ jobs:
                 ) {
                   console.log(`Discussion #${discussionNumber} qualifies for closure.`);
 
-                  // 4. Post closing comment
+                  // 4. Post the closing comment
                   await octokit.request("POST /repos/{owner}/{repo}/discussions/{discussion_number}/comments", {
                     owner: OWNER,
                     repo: REPO,
