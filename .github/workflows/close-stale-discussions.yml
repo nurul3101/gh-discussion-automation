@@ -3,7 +3,8 @@ name: Close Stale GH Discussions
 on:
   schedule:
     - cron: '0 0 * * *'
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger for testing
+
 jobs:
   close-discussions:
     runs-on: ubuntu-latest
@@ -17,6 +18,7 @@ jobs:
             const LABEL = 'needs-confirmation';
             const TEAM_MEMBERS = ['nurul3101']; // Replace with your team usernames
             const CLOSING_MESSAGE = 'This discussion is being closed as part of our weekly cleanup process. Feel free to reopen if needed!';
+            const PREVIEW_HEADER = 'application/vnd.github.echo-preview+json';
 
             // Get repository context
             const { owner, repo } = context.repo;
@@ -58,45 +60,54 @@ jobs:
                 .filter(discussion => {
                   const createdAt = new Date(discussion.createdAt);
                   const hasLabel = discussion.labels.edges.some(labelEdge => labelEdge.node.name === LABEL);
-                  return hasLabel && createdAt >= oneWeekAgo;
+                  return hasLabel && createdAt >= 0;
                 });
 
               // Process each discussion
               for (const discussion of discussions) {
-                // Fetch the latest comment
-                const comments = await github.rest.discussions.listComments({
+                // Fetch the latest comment using the preview header
+                const commentsResponse = await github.request('GET /repos/{owner}/{repo}/discussions/{discussion_number}/comments', {
                   owner,
                   repo,
                   discussion_number: discussion.number,
                   per_page: 1,
                   page: 1,
+                  headers: {
+                    accept: PREVIEW_HEADER
+                  }
                 });
-
-                const lastComment = comments.data.length > 0 ? comments.data[0] : null;
+                const comments = commentsResponse.data;
+                const lastComment = comments.length > 0 ? comments[0] : null;
 
                 // Skip if the latest comment is from a team member
                 if (lastComment && TEAM_MEMBERS.includes(lastComment.author.login)) {
-                  console.log(`Skipping ${discussion.title} - last reply by team member ${lastComment.author.login}`);
+                  console.log(`Skipping "${discussion.title}" - last reply by team member ${lastComment.author.login}`);
                   continue;
                 }
 
-                // Post closing message
-                await github.rest.discussions.createComment({
+                // Post closing message with preview header
+                await github.request('POST /repos/{owner}/{repo}/discussions/{discussion_number}/comments', {
                   owner,
                   repo,
                   discussion_number: discussion.number,
                   body: CLOSING_MESSAGE,
+                  headers: {
+                    accept: PREVIEW_HEADER
+                  }
                 });
 
-                // Close the discussion
-                await github.rest.discussions.update({
+                // Close the discussion by updating it using the preview header
+                await github.request('PATCH /repos/{owner}/{repo}/discussions/{discussion_number}', {
                   owner,
                   repo,
                   discussion_number: discussion.number,
-                  state_reason: 'RESOLVED', // Closes the discussion
+                  state_reason: 'RESOLVED',
+                  headers: {
+                    accept: PREVIEW_HEADER
+                  }
                 });
 
-                console.log(`Closed discussion: ${discussion.title}`);
+                console.log(`Closed discussion: "${discussion.title}"`);
               }
             } catch (error) {
               console.error('Error:', error.message || error);
