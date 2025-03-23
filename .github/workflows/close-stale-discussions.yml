@@ -94,6 +94,9 @@ jobs:
                           body
                           createdAt
                           updatedAt
+                          category {
+                            name
+                          }
                           labels(first: 10) {
                             nodes {
                               id
@@ -134,6 +137,7 @@ jobs:
               // 3. Filter open discussions that have at least one of the target labels
               const targetLabels = ["needs-information", "needs-confirmation"];
               const filteredDiscussions = discussions.filter(discussion => {
+                if (!discussion.category || discussion.category.name !== "Q&A") return false;
                 if (!discussion.labels.nodes || discussion.labels.nodes.length === 0) return false;
                 const labels = discussion.labels.nodes.map(label => label.name);
                 return targetLabels.some(target => labels.includes(target));
