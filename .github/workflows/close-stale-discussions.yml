@@ -16,7 +16,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16'
+          node-version: '20'
 
       - name: Install dependencies
         run: |
@@ -46,8 +46,8 @@ jobs:
               console.error("TEAM_HANDLES environment variable not set");
               process.exit(1);
             }
-            const teamHandles = teamHandlesEnv.split(",").map(handle => handle.trim());
-            const closingMessage = process.env.CLOSING_MESSAGE || "Closing discussion due to inactivity.";
+            const teamHandles: string[] = teamHandlesEnv.split(",").map((handle: string) => handle.trim());
+            const closingMessage: string = process.env.CLOSING_MESSAGE || "Closing discussion due to inactivity.";
 
             const octokit = new Octokit({
               auth: token,
@@ -63,15 +63,15 @@ jobs:
                   accept: "application/vnd.github.echo-preview+json"
                 }
               });
-              const discussions = discussionsResponse.data;
+              const discussions = discussionsResponse.data as any[];
 
               // 2. Filter open discussions that have the target labels
-              const targetLabels = ["needs-information", "needs-confirmation"];
-              const filteredDiscussions = discussions.filter(discussion => {
+              const targetLabels: string[] = ["needs-information", "needs-confirmation"];
+              const filteredDiscussions = discussions.filter((discussion: any) => {
                 if (discussion.state !== "open") return false;
                 if (!discussion.labels || discussion.labels.length === 0) return false;
-                const labels = discussion.labels.map(label => label.name);
-                return targetLabels.some(target => labels.includes(target));
+                const labels = discussion.labels.map((label: any) => label.name);
+                return targetLabels.some((target: string) => labels.includes(target));
               });
 
               console.log(`Found ${filteredDiscussions.length} open discussions with target labels.`);
@@ -90,7 +90,7 @@ jobs:
                     accept: "application/vnd.github.echo-preview+json"
                   }
                 });
-                const comments = commentsResponse.data;
+                const comments = commentsResponse.data as any[];
                 if (comments.length === 0) {
                   console.log("No comments found, skipping.");
                   continue;
@@ -121,8 +121,8 @@ jobs:
 
                   // 5. Remove target labels
                   const remainingLabels = discussion.labels
-                    .map(label => label.name)
-                    .filter(labelName => !targetLabels.includes(labelName));
+                    .map((label: any) => label.name)
+                    .filter((labelName: string) => !targetLabels.includes(labelName));
                   await octokit.request("PATCH /repos/{owner}/{repo}/discussions/{discussion_number}", {
                     owner: OWNER,
                     repo: REPO,
