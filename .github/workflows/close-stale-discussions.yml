@@ -80,7 +80,7 @@ jobs:
                 repo: REPO,
                 affiliation: 'direct'
               });
-              console.log('collabResponse', JSON.stingify(collabResponse,null,2));
+              console.log('collabResponse', JSON.stringify(collabResponse,null,2));
               const collaborators = collabResponse.data
                 .filter(user => user.permissions && user.permissions.push)
                 .map(user => user.login);
