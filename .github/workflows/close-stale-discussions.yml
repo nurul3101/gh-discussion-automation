@@ -29,7 +29,7 @@ jobs:
           CLOSING_MESSAGE: "Closing this discussion due to inactivity. Please reopen if needed."
         run: |
           cat > close-discussions.ts <<'EOF'
-          import { Octokit } from "@octokit/rest";
+          const { Octokit } = require("@octokit/rest");
 
           const OWNER = "prisma";
           const REPO = "prisma";
@@ -41,7 +41,6 @@ jobs:
               console.error("GITHUB_TOKEN not set");
               process.exit(1);
             }
-
             const teamHandlesEnv = process.env.TEAM_HANDLES;
             if (!teamHandlesEnv) {
               console.error("TEAM_HANDLES environment variable not set");
@@ -64,14 +63,14 @@ jobs:
                   accept: "application/vnd.github.echo-preview+json"
                 }
               });
-              const discussions = discussionsResponse.data as any[];
+              const discussions = discussionsResponse.data;
 
               // 2. Filter open discussions that have the target labels
               const targetLabels = ["needs-information", "needs-confirmation"];
               const filteredDiscussions = discussions.filter(discussion => {
                 if (discussion.state !== "open") return false;
                 if (!discussion.labels || discussion.labels.length === 0) return false;
-                const labels = discussion.labels.map((label: any) => label.name);
+                const labels = discussion.labels.map(label => label.name);
                 return targetLabels.some(target => labels.includes(target));
               });
 
@@ -91,7 +90,7 @@ jobs:
                     accept: "application/vnd.github.echo-preview+json"
                   }
                 });
-                const comments = commentsResponse.data as any[];
+                const comments = commentsResponse.data;
                 if (comments.length === 0) {
                   console.log("No comments found, skipping.");
                   continue;
@@ -122,8 +121,8 @@ jobs:
 
                   // 5. Remove target labels
                   const remainingLabels = discussion.labels
-                    .map((label: any) => label.name)
-                    .filter((labelName: string) => !targetLabels.includes(labelName));
+                    .map(label => label.name)
+                    .filter(labelName => !targetLabels.includes(labelName));
                   await octokit.request("PATCH /repos/{owner}/{repo}/discussions/{discussion_number}", {
                     owner: OWNER,
                     repo: REPO,
