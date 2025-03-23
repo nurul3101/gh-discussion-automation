@@ -64,7 +64,7 @@ jobs:
                 }
               });
               const discussions = discussionsResponse.data;
-
+              console.log('d',discussions);
               // 2. Filter open discussions that have at least one of the target labels.
               // A discussion qualifies if it has either "needs-information" OR "needs-confirmation".
               const targetLabels = ["needs-information", "needs-confirmation"];
