@@ -4,7 +4,7 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Runs daily at midnight UTC
   workflow_dispatch:     # Enables manual run from the Actions tab
-  
+
 permissions:
   contents: read
   discussions: write
@@ -95,6 +95,7 @@ jobs:
                           updatedAt
                           labels(first: 10) {
                             nodes {
+                              id
                               name
                             }
                           }
@@ -173,7 +174,37 @@ jobs:
                     continue; // Skip further processing if comment fails
                   }
 
-                  // 6. Close the discussion using GraphQL
+                  // 6. Remove target labels using GraphQL removeLabelsFromLabelable mutation
+                  try {
+                    // Get label IDs to remove
+                    const labelsToRemove = discussion.labels.nodes
+                      .filter(label => targetLabels.includes(label.name))
+                      .map(label => label.id);
+                    
+                    if (labelsToRemove.length > 0) {
+                      await graphqlWithAuth(`
+                        mutation RemoveLabels($labelableId: ID!, $labelIds: [ID!]!) {
+                          removeLabelsFromLabelable(input: {
+                            labelableId: $labelableId,
+                            labelIds: $labelIds
+                          }) {
+                            clientMutationId
+                          }
+                        }
+                      `, {
+                        labelableId: discussion.id,
+                        labelIds: labelsToRemove
+                      });
+                      console.log(`Removed target labels from discussion #${discussionNumber}.`);
+                    } else {
+                      console.log(`No target labels to remove from discussion #${discussionNumber}.`);
+                    }
+                  } catch (labelError) {
+                    console.error(`Error removing labels: ${labelError.message}`);
+                    if (labelError.errors) console.error(JSON.stringify(labelError.errors, null, 2));
+                  }
+
+                  // 7. Close the discussion using GraphQL
                   try {
                     await graphqlWithAuth(`
                       mutation CloseDiscussion($discussionId: ID!) {
@@ -190,53 +221,6 @@ jobs:
                   } catch (closeError) {
                     console.error(`Error closing discussion: ${closeError.message}`);
                     if (closeError.response) console.error(JSON.stringify(closeError.response, null, 2));
-                  }
-
-                  // 7. Remove target labels - using GraphQL
-                  try {
-                    // Get current label IDs
-                    const labelDetailQuery = await graphqlWithAuth(`
-                      query getDiscussionLabels($discussionId: ID!) {
-                        node(id: $discussionId) {
-                          ... on Discussion {
-                            labels(first: 20) {
-                              nodes {
-                                id
-                                name
-                              }
-                            }
-                          }
-                        }
-                      }
-                    `, {
-                      discussionId: discussion.id
-                    });
-                    
-                    const currentLabels = labelDetailQuery.node.labels.nodes;
-                    const labelsToKeep = currentLabels
-                      .filter(label => !targetLabels.includes(label.name))
-                      .map(label => label.id);
-                    
-                    // Update labels using GraphQL
-                    await graphqlWithAuth(`
-                      mutation UpdateDiscussionLabels($discussionId: ID!, $labelIds: [ID!]!) {
-                        updateDiscussion(input: {
-                          discussionId: $discussionId,
-                          labelIds: $labelIds
-                        }) {
-                          discussion {
-                            id
-                          }
-                        }
-                      }
-                    `, {
-                      discussionId: discussion.id,
-                      labelIds: labelsToKeep
-                    });
-                    console.log(`Removed target labels from discussion #${discussionNumber}.`);
-                  } catch (labelError) {
-                    console.error(`Error updating labels: ${labelError.message}`);
-                    if (labelError.response) console.error(JSON.stringify(labelError.response, null, 2));
                   }
                 } else {
                   console.log(`Discussion #${discussionNumber} does not qualify for closure.`);
