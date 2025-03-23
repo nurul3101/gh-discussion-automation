@@ -80,13 +80,35 @@ jobs:
               });
               const repoId = repoData.data.node_id;
 
-              // 2. Fetch all discussions using GraphQL
-              // Modified to fetch both comments and their replies
-              const discussionsQuery = await graphqlWithAuth(`
-                query getDiscussions($repoId: ID!) {
+              // 1.5. Fetch all discussion categories to dynamically find the Q&A category
+              const categoriesQuery = await graphqlWithAuth(`
+                query getCategories($repoId: ID!) {
                   node(id: $repoId) {
                     ... on Repository {
-                      discussions(first: 50, states: OPEN) {
+                      discussionCategories(first: 25) {
+                        nodes {
+                          id
+                          name
+                        }
+                      }
+                    }
+                  }
+                }
+              `, { repoId });
+              const categories = categoriesQuery.node.discussionCategories.nodes;
+              const qaCategory = categories.find(cat => cat.name === "Q&A");
+              if (!qaCategory) {
+                console.error("No Q&A category found.");
+                process.exit(1);
+              }
+              console.log(`Found Q&A category with ID: ${qaCategory.id}`);
+
+              // 2. Fetch top 50 open discussions in the Q&A category using GraphQL
+              const discussionsQuery = await graphqlWithAuth(`
+                query getDiscussions($repoId: ID!, $categoryId: ID!) {
+                  node(id: $repoId) {
+                    ... on Repository {
+                      discussions(first: 50, states: OPEN, categoryId: $categoryId) {
                         nodes {
                           id
                           number
@@ -126,9 +148,7 @@ jobs:
                     }
                   }
                 }
-              `, {
-                repoId: repoId
-              });
+              `, { repoId, categoryId: qaCategory.id });
 
               // Extract discussions
               const discussions = discussionsQuery.node.discussions.nodes;
@@ -137,7 +157,6 @@ jobs:
               // 3. Filter open discussions that have at least one of the target labels
               const targetLabels = ["needs-information", "needs-confirmation"];
               const filteredDiscussions = discussions.filter(discussion => {
-                if (!discussion.category || discussion.category.name !== "Q&A") return false;
                 if (!discussion.labels.nodes || discussion.labels.nodes.length === 0) return false;
                 const labels = discussion.labels.nodes.map(label => label.name);
                 return targetLabels.some(target => labels.includes(target));
