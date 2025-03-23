@@ -30,7 +30,7 @@ jobs:
           cat > close-discussions.js <<'EOF'
           const { Octokit } = require("@octokit/rest");
 
-          // Get current repo details from the GITHUB_REPOSITORY env variable ("owner/repo")
+          // Get current repository details from the GITHUB_REPOSITORY environment variable ("owner/repo")
           const repoInfo = process.env.GITHUB_REPOSITORY;
           if (!repoInfo) {
             console.error("GITHUB_REPOSITORY environment variable not set");
@@ -38,7 +38,7 @@ jobs:
           }
           const [OWNER, REPO] = repoInfo.split('/');
 
-          // ONE_WEEK_MS is set to one week (for testing, it is currently 10 milliseconds)
+          // ONE_WEEK_MS is set to one week (in milliseconds)
           const ONE_WEEK_MS = 10;
 
           async function run() {
