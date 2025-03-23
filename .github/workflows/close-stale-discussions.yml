@@ -86,7 +86,7 @@ jobs:
                 query getDiscussions($repoId: ID!) {
                   node(id: $repoId) {
                     ... on Repository {
-                      discussions(first: 100, states: OPEN) {
+                      discussions(first: 50, states: OPEN) {
                         nodes {
                           id
                           number
@@ -100,14 +100,14 @@ jobs:
                               name
                             }
                           }
-                          comments(first: 100) {
+                          comments(first: 50) {
                             nodes {
                               id
                               createdAt
                               author {
                                 login
                               }
-                              replies(first: 100) {
+                              replies(first: 50) {
                                 nodes {
                                   id
                                   createdAt
