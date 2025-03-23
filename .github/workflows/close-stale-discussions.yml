@@ -30,9 +30,15 @@ jobs:
           cat > close-discussions.js <<'EOF'
           const { Octokit } = require("@octokit/rest");
 
-          const OWNER = "prisma";
-          const REPO = "prisma";
-          // ONE_WEEK_MS is set to one week
+          // Get current repo details from the GITHUB_REPOSITORY env variable ("owner/repo")
+          const repoInfo = process.env.GITHUB_REPOSITORY;
+          if (!repoInfo) {
+            console.error("GITHUB_REPOSITORY environment variable not set");
+            process.exit(1);
+          }
+          const [OWNER, REPO] = repoInfo.split('/');
+
+          // ONE_WEEK_MS is set to one week (for testing, it is currently 10 milliseconds)
           const ONE_WEEK_MS = 10;
 
           async function run() {
@@ -51,7 +57,7 @@ jobs:
 
             const octokit = new Octokit({
               auth: token,
-              userAgent: "prisma/auto-close-discussions",
+              userAgent: "auto-close-discussions",
             });
 
             try {
@@ -64,7 +70,8 @@ jobs:
                 }
               });
               const discussions = discussionsResponse.data;
-              console.log('d',discussions);
+              console.log('Fetched discussions:', discussions);
+
               // 2. Filter open discussions that have at least one of the target labels.
               // A discussion qualifies if it has either "needs-information" OR "needs-confirmation".
               const targetLabels = ["needs-information", "needs-confirmation"];
