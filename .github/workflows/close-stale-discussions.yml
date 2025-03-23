@@ -43,7 +43,7 @@ jobs:
           const [OWNER, REPO] = repoInfo.split('/');
 
           // ONE_WEEK_MS is set to one week (in milliseconds)
-          const ONE_WEEK_MS = 10; // Actual one week in ms
+          const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000; // Actual one week in ms
 
           async function run() {
             const token = process.env.GITHUB_TOKEN;
@@ -80,7 +80,7 @@ jobs:
                 repo: REPO,
                 affiliation: 'direct'
               });
-              
+
               const collaborators = collabResponse.data
                 .filter(user => user.permissions && user.permissions.push)
                 .map(user => user.login);
