@@ -19,7 +19,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install @octokit/rest
+        run: npm install @octokit/rest @octokit/graphql
 
       - name: Run inline Discussion Cleanup Script
         env:
@@ -29,6 +29,7 @@ jobs:
         run: |
           cat > close-discussions.js <<'EOF'
           const { Octokit } = require("@octokit/rest");
+          const { graphql } = require("@octokit/graphql");
 
           // Get current repository details from the GITHUB_REPOSITORY environment variable ("owner/repo")
           const repoInfo = process.env.GITHUB_REPOSITORY;
@@ -39,7 +40,7 @@ jobs:
           const [OWNER, REPO] = repoInfo.split('/');
 
           // ONE_WEEK_MS is set to one week (in milliseconds)
-          const ONE_WEEK_MS = 10;
+          const ONE_WEEK_MS = 10; // Actual one week in ms
 
           async function run() {
             const token = process.env.GITHUB_TOKEN;
@@ -60,106 +61,186 @@ jobs:
               userAgent: "auto-close-discussions",
             });
 
-            try {
-              // 1. Fetch all discussions (using preview header)
-              const discussionsResponse = await octokit.request("GET /repos/{owner}/{repo}/discussions", {
-                owner: OWNER,
-                repo: REPO,
-                headers: {
-                  accept: "application/vnd.github.echo-preview+json"
-                }
-              });
-              const discussions = discussionsResponse.data;
-              console.log('Fetched discussions:', discussions);
+            // Set up GraphQL client
+            const graphqlWithAuth = graphql.defaults({
+              headers: {
+                authorization: `token ${token}`,
+              },
+            });
 
-              // 2. Filter open discussions that have at least one of the target labels.
-              // A discussion qualifies if it has either "needs-information" OR "needs-confirmation".
+            try {
+              // 1. Get the repository ID first (needed for GraphQL)
+              const repoData = await octokit.repos.get({
+                owner: OWNER,
+                repo: REPO
+              });
+              const repoId = repoData.data.node_id;
+
+              // 2. Fetch all discussions using GraphQL
+              const discussionsQuery = await graphqlWithAuth(`
+                query getDiscussions($repoId: ID!) {
+                  node(id: $repoId) {
+                    ... on Repository {
+                      discussions(first: 100, states: OPEN) {
+                        nodes {
+                          id
+                          number
+                          title
+                          body
+                          createdAt
+                          updatedAt
+                          labels(first: 10) {
+                            nodes {
+                              name
+                            }
+                          }
+                          comments(last: 1) {
+                            nodes {
+                              id
+                              createdAt
+                              author {
+                                login
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `, {
+                repoId: repoId
+              });
+
+              // Extract discussions
+              const discussions = discussionsQuery.node.discussions.nodes;
+              console.log(`Fetched ${discussions.length} discussions`);
+
+              // 3. Filter open discussions that have at least one of the target labels
               const targetLabels = ["needs-information", "needs-confirmation"];
               const filteredDiscussions = discussions.filter(discussion => {
-                if (discussion.state !== "open") return false;
-                if (!discussion.labels || discussion.labels.length === 0) return false;
-                const labels = discussion.labels.map(label => label.name);
+                if (!discussion.labels.nodes || discussion.labels.nodes.length === 0) return false;
+                const labels = discussion.labels.nodes.map(label => label.name);
                 return targetLabels.some(target => labels.includes(target));
               });
 
               console.log(`Found ${filteredDiscussions.length} open discussions with at least one target label.`);
 
-              // 3. Process each filtered discussion
+              // 4. Process each filtered discussion
               for (const discussion of filteredDiscussions) {
                 const discussionNumber = discussion.number;
                 console.log(`Processing discussion #${discussionNumber}: ${discussion.title}`);
 
-                // Get all comments for the discussion
-                const commentsResponse = await octokit.request("GET /repos/{owner}/{repo}/discussions/{discussion_number}/comments", {
-                  owner: OWNER,
-                  repo: REPO,
-                  discussion_number: discussionNumber,
-                  headers: {
-                    accept: "application/vnd.github.echo-preview+json"
-                  }
-                });
-                const comments = commentsResponse.data;
-                if (comments.length === 0) {
+                // Check if there are comments
+                if (!discussion.comments.nodes.length) {
                   console.log("No comments found, skipping.");
                   continue;
                 }
 
                 // Check if the last comment is by a team member and older than one week
-                const lastComment = comments[comments.length - 1];
-                const lastCommentDate = new Date(lastComment.created_at);
+                const lastComment = discussion.comments.nodes[0];
+                const lastCommentDate = new Date(lastComment.createdAt);
                 const now = new Date();
 
                 if (
-                  teamHandles.includes(lastComment.user.login) &&
+                  teamHandles.includes(lastComment.author.login) &&
                   (now.getTime() - lastCommentDate.getTime() > ONE_WEEK_MS)
                 ) {
                   console.log(`Discussion #${discussionNumber} qualifies for closure.`);
 
-                  // 4. Post the closing comment
-                  await octokit.request("POST /repos/{owner}/{repo}/discussions/{discussion_number}/comments", {
-                    owner: OWNER,
-                    repo: REPO,
-                    discussion_number: discussionNumber,
-                    headers: {
-                      accept: "application/vnd.github.echo-preview+json"
-                    },
-                    body: closingMessage,
-                  });
-                  console.log(`Posted closing comment on discussion #${discussionNumber}.`);
+                  // 5. Add a closing comment using GraphQL
+                  try {
+                    await graphqlWithAuth(`
+                      mutation AddDiscussionComment($discussionId: ID!, $body: String!) {
+                        addDiscussionComment(input: {discussionId: $discussionId, body: $body}) {
+                          comment {
+                            id
+                          }
+                        }
+                      }
+                    `, {
+                      discussionId: discussion.id,
+                      body: closingMessage
+                    });
+                    console.log(`Posted closing comment on discussion #${discussionNumber}.`);
+                  } catch (commentError) {
+                    console.error(`Error posting comment: ${commentError.message}`);
+                    if (commentError.response) console.error(JSON.stringify(commentError.response, null, 2));
+                    continue; // Skip further processing if comment fails
+                  }
 
-                  // 5. Remove target labels
-                  const remainingLabels = discussion.labels
-                    .map(label => label.name)
-                    .filter(labelName => !targetLabels.includes(labelName));
-                  await octokit.request("PATCH /repos/{owner}/{repo}/discussions/{discussion_number}", {
-                    owner: OWNER,
-                    repo: REPO,
-                    discussion_number: discussionNumber,
-                    headers: {
-                      accept: "application/vnd.github.echo-preview+json"
-                    },
-                    labels: remainingLabels,
-                  });
-                  console.log(`Removed target labels from discussion #${discussionNumber}.`);
+                  // 6. Close the discussion using GraphQL
+                  try {
+                    await graphqlWithAuth(`
+                      mutation CloseDiscussion($discussionId: ID!) {
+                        closeDiscussion(input: {discussionId: $discussionId}) {
+                          discussion {
+                            id
+                          }
+                        }
+                      }
+                    `, {
+                      discussionId: discussion.id
+                    });
+                    console.log(`Closed discussion #${discussionNumber}.`);
+                  } catch (closeError) {
+                    console.error(`Error closing discussion: ${closeError.message}`);
+                    if (closeError.response) console.error(JSON.stringify(closeError.response, null, 2));
+                  }
 
-                  // 6. Close the discussion (using closed state and reason)
-                  await octokit.request("PATCH /repos/{owner}/{repo}/discussions/{discussion_number}", {
-                    owner: OWNER,
-                    repo: REPO,
-                    discussion_number: discussionNumber,
-                    headers: {
-                      accept: "application/vnd.github.echo-preview+json"
-                    },
-                    state: "closed",
-                    state_reason: "resolved",
-                  });
-                  console.log(`Closed discussion #${discussionNumber}.`);
+                  // 7. Remove target labels - using GraphQL
+                  try {
+                    // Get current label IDs
+                    const labelDetailQuery = await graphqlWithAuth(`
+                      query getDiscussionLabels($discussionId: ID!) {
+                        node(id: $discussionId) {
+                          ... on Discussion {
+                            labels(first: 20) {
+                              nodes {
+                                id
+                                name
+                              }
+                            }
+                          }
+                        }
+                      }
+                    `, {
+                      discussionId: discussion.id
+                    });
+                    
+                    const currentLabels = labelDetailQuery.node.labels.nodes;
+                    const labelsToKeep = currentLabels
+                      .filter(label => !targetLabels.includes(label.name))
+                      .map(label => label.id);
+                    
+                    // Update labels using GraphQL
+                    await graphqlWithAuth(`
+                      mutation UpdateDiscussionLabels($discussionId: ID!, $labelIds: [ID!]!) {
+                        updateDiscussion(input: {
+                          discussionId: $discussionId,
+                          labelIds: $labelIds
+                        }) {
+                          discussion {
+                            id
+                          }
+                        }
+                      }
+                    `, {
+                      discussionId: discussion.id,
+                      labelIds: labelsToKeep
+                    });
+                    console.log(`Removed target labels from discussion #${discussionNumber}.`);
+                  } catch (labelError) {
+                    console.error(`Error updating labels: ${labelError.message}`);
+                    if (labelError.response) console.error(JSON.stringify(labelError.response, null, 2));
+                  }
                 } else {
                   console.log(`Discussion #${discussionNumber} does not qualify for closure.`);
                 }
               }
             } catch (error) {
               console.error("Error processing discussions:", error);
+              if (error.response) console.error(JSON.stringify(error.response, null, 2));
             }
           }
 
