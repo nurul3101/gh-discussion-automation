@@ -81,6 +81,7 @@ jobs:
               const repoId = repoData.data.node_id;
 
               // 2. Fetch all discussions using GraphQL
+              // Modified to fetch both comments and their replies
               const discussionsQuery = await graphqlWithAuth(`
                 query getDiscussions($repoId: ID!) {
                   node(id: $repoId) {
@@ -99,12 +100,21 @@ jobs:
                               name
                             }
                           }
-                          comments(last: 1) {
+                          comments(first: 100) {
                             nodes {
                               id
                               createdAt
                               author {
                                 login
+                              }
+                              replies(first: 100) {
+                                nodes {
+                                  id
+                                  createdAt
+                                  author {
+                                    login
+                                  }
+                                }
                               }
                             }
                           }
@@ -136,22 +146,53 @@ jobs:
                 const discussionNumber = discussion.number;
                 console.log(`Processing discussion #${discussionNumber}: ${discussion.title}`);
 
+                // Find the most recent activity (comment or reply)
+                let lastActivity = null;
+                let lastActivityDate = null;
+                let lastActivityAuthor = null;
+
                 // Check if there are comments
                 if (!discussion.comments.nodes.length) {
                   console.log("No comments found, skipping.");
                   continue;
                 }
 
-                // Check if the last comment is by a team member and older than one week
-                const lastComment = discussion.comments.nodes[0];
-                const lastCommentDate = new Date(lastComment.createdAt);
+                // Find the most recent activity date from all comments and replies
+                for (const comment of discussion.comments.nodes) {
+                  const commentDate = new Date(comment.createdAt);
+                  
+                  // Check if this comment is more recent than what we've found so far
+                  if (!lastActivityDate || commentDate > lastActivityDate) {
+                    lastActivity = "comment";
+                    lastActivityDate = commentDate;
+                    lastActivityAuthor = comment.author.login;
+                  }
+                  
+                  // Check replies to this comment
+                  if (comment.replies && comment.replies.nodes) {
+                    for (const reply of comment.replies.nodes) {
+                      const replyDate = new Date(reply.createdAt);
+                      
+                      // Check if this reply is more recent than what we've found so far
+                      if (!lastActivityDate || replyDate > lastActivityDate) {
+                        lastActivity = "reply";
+                        lastActivityDate = replyDate;
+                        lastActivityAuthor = reply.author.login;
+                      }
+                    }
+                  }
+                }
+
+                console.log(`Last activity on discussion #${discussionNumber} was a ${lastActivity} from ${lastActivityAuthor} on ${lastActivityDate}`);
+
+                // Check if the last activity is by a team member and older than one week
                 const now = new Date();
 
                 if (
-                  teamHandles.includes(lastComment.author.login) &&
-                  (now.getTime() - lastCommentDate.getTime() > ONE_WEEK_MS)
+                  teamHandles.includes(lastActivityAuthor) &&
+                  (now.getTime() - lastActivityDate.getTime() > ONE_WEEK_MS)
                 ) {
-                  console.log(`Discussion #${discussionNumber} qualifies for closure.`);
+                  console.log(`Discussion #${discussionNumber} qualifies for closure. Last activity was from team member ${lastActivityAuthor} more than a week ago.`);
 
                   // 5. Add a closing comment using GraphQL
                   try {
@@ -204,11 +245,11 @@ jobs:
                     if (labelError.errors) console.error(JSON.stringify(labelError.errors, null, 2));
                   }
 
-                  // 7. Close the discussion using GraphQL
+                  // 7. Close the discussion using GraphQL with the OUTDATED reason
                   try {
                     await graphqlWithAuth(`
                       mutation CloseDiscussion($discussionId: ID!) {
-                        closeDiscussion(input: {discussionId: $discussionId}) {
+                        closeDiscussion(input: {discussionId: $discussionId, reason: OUTDATED}) {
                           discussion {
                             id
                           }
@@ -217,7 +258,7 @@ jobs:
                     `, {
                       discussionId: discussion.id
                     });
-                    console.log(`Closed discussion #${discussionNumber}.`);
+                    console.log(`Closed discussion #${discussionNumber} as OUTDATED.`);
                   } catch (closeError) {
                     console.error(`Error closing discussion: ${closeError.message}`);
                     if (closeError.response) console.error(JSON.stringify(closeError.response, null, 2));
