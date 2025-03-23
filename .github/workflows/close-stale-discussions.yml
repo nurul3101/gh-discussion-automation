@@ -19,17 +19,15 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: |
-          npm install @octokit/rest ts-node typescript
+        run: npm install @octokit/rest
 
       - name: Run inline Discussion Cleanup Script
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TEAM_HANDLES: "nurul3101"  # Replace with your comma-separated GitHub handles
           CLOSING_MESSAGE: "Closing this discussion due to inactivity. Please reopen if needed."
-          TS_NODE_ESM: "false"   # Force ts-node to run in CommonJS mode
         run: |
-          cat > close-discussions.ts <<'EOF'
+          cat > close-discussions.js <<'EOF'
           const { Octokit } = require("@octokit/rest");
 
           const OWNER = "prisma";
@@ -47,8 +45,8 @@ jobs:
               console.error("TEAM_HANDLES environment variable not set");
               process.exit(1);
             }
-            const teamHandles: string[] = teamHandlesEnv.split(",").map((handle: string) => handle.trim());
-            const closingMessage: string = process.env.CLOSING_MESSAGE || "Closing discussion due to inactivity.";
+            const teamHandles = teamHandlesEnv.split(",").map(handle => handle.trim());
+            const closingMessage = process.env.CLOSING_MESSAGE || "Closing discussion due to inactivity.";
 
             const octokit = new Octokit({
               auth: token,
@@ -64,15 +62,15 @@ jobs:
                   accept: "application/vnd.github.echo-preview+json"
                 }
               });
-              const discussions = discussionsResponse.data as any[];
+              const discussions = discussionsResponse.data;
 
               // 2. Filter open discussions that have the target labels
-              const targetLabels: string[] = ["needs-information", "needs-confirmation"];
-              const filteredDiscussions = discussions.filter((discussion: any) => {
+              const targetLabels = ["needs-information", "needs-confirmation"];
+              const filteredDiscussions = discussions.filter(discussion => {
                 if (discussion.state !== "open") return false;
                 if (!discussion.labels || discussion.labels.length === 0) return false;
-                const labels = discussion.labels.map((label: any) => label.name);
-                return targetLabels.some((target: string) => labels.includes(target));
+                const labels = discussion.labels.map(label => label.name);
+                return targetLabels.some(target => labels.includes(target));
               });
 
               console.log(`Found ${filteredDiscussions.length} open discussions with target labels.`);
@@ -91,7 +89,7 @@ jobs:
                     accept: "application/vnd.github.echo-preview+json"
                   }
                 });
-                const comments = commentsResponse.data as any[];
+                const comments = commentsResponse.data;
                 if (comments.length === 0) {
                   console.log("No comments found, skipping.");
                   continue;
@@ -122,8 +120,8 @@ jobs:
 
                   // 5. Remove target labels
                   const remainingLabels = discussion.labels
-                    .map((label: any) => label.name)
-                    .filter((labelName: string) => !targetLabels.includes(labelName));
+                    .map(label => label.name)
+                    .filter(labelName => !targetLabels.includes(labelName));
                   await octokit.request("PATCH /repos/{owner}/{repo}/discussions/{discussion_number}", {
                     owner: OWNER,
                     repo: REPO,
@@ -159,4 +157,4 @@ jobs:
           run();
           EOF
 
-          npx ts-node close-discussions.ts
+          node close-discussions.js
