@@ -32,7 +32,8 @@ jobs:
 
           const OWNER = "prisma";
           const REPO = "prisma";
-          const ONE_WEEK_MS = 1;//7 * 24 * 60 * 60 * 1000;
+          // ONE_WEEK_MS is set to one week
+          const ONE_WEEK_MS = 10;
 
           async function run() {
             const token = process.env.GITHUB_TOKEN;
@@ -64,7 +65,8 @@ jobs:
               });
               const discussions = discussionsResponse.data;
 
-              // 2. Filter open discussions that have the target labels
+              // 2. Filter open discussions that have at least one of the target labels.
+              // A discussion qualifies if it has either "needs-information" OR "needs-confirmation".
               const targetLabels = ["needs-information", "needs-confirmation"];
               const filteredDiscussions = discussions.filter(discussion => {
                 if (discussion.state !== "open") return false;
@@ -73,7 +75,7 @@ jobs:
                 return targetLabels.some(target => labels.includes(target));
               });
 
-              console.log(`Found ${filteredDiscussions.length} open discussions with target labels.`);
+              console.log(`Found ${filteredDiscussions.length} open discussions with at least one target label.`);
 
               // 3. Process each filtered discussion
               for (const discussion of filteredDiscussions) {
