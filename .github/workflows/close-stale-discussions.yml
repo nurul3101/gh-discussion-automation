@@ -28,7 +28,7 @@ jobs:
       - name: Run inline Discussion Cleanup Script
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TEAM_HANDLES: "nurul3101"  # Replace with your comma-separated GitHub handles
+          TEAM_HANDLES: "nurul3101"  # This env var is no longer used
           CLOSING_MESSAGE: "Closing this discussion due to inactivity. Please reopen if needed."
         run: |
           cat > close-discussions.js <<'EOF'
@@ -52,12 +52,7 @@ jobs:
               console.error("GITHUB_TOKEN not set");
               process.exit(1);
             }
-            const teamHandlesEnv = process.env.TEAM_HANDLES;
-            if (!teamHandlesEnv) {
-              console.error("TEAM_HANDLES environment variable not set");
-              process.exit(1);
-            }
-            const teamHandles = teamHandlesEnv.split(",").map(handle => handle.trim());
+            // TEAM_HANDLES is no longer used
             const closingMessage = process.env.CLOSING_MESSAGE || "Closing discussion due to inactivity.";
 
             const octokit = new Octokit({
@@ -80,7 +75,19 @@ jobs:
               });
               const repoId = repoData.data.node_id;
 
-              // 1.5. Fetch all discussion categories to dynamically find the Q&A category
+              // NEW: Fetch collaborators with write (push) access
+              const collabResponse = await octokit.repos.listCollaborators({
+                owner: OWNER,
+                repo: REPO,
+                affiliation: 'direct'
+              });
+              console.log('collabResponse', collabResponse)
+              const collaborators = collabResponse.data
+                .filter(user => user.permissions && user.permissions.push)
+                .map(user => user.login);
+              console.log(`Found ${collaborators.length} collaborators with write access.`);
+
+              // NEW: Fetch all discussion categories to dynamically find the Q&A category
               const categoriesQuery = await graphqlWithAuth(`
                 query getCategories($repoId: ID!) {
                   node(id: $repoId) {
@@ -162,7 +169,7 @@ jobs:
                 return targetLabels.some(target => labels.includes(target));
               });
 
-              console.log(`Found ${filteredDiscussions.length} open discussions with at least one target label.`);
+              console.log(`Found ${filteredDiscussions.length} open Q&A discussions with at least one target label.`);
 
               // 4. Process each filtered discussion
               for (const discussion of filteredDiscussions) {
@@ -183,20 +190,14 @@ jobs:
                 // Find the most recent activity date from all comments and replies
                 for (const comment of discussion.comments.nodes) {
                   const commentDate = new Date(comment.createdAt);
-                  
-                  // Check if this comment is more recent than what we've found so far
                   if (!lastActivityDate || commentDate > lastActivityDate) {
                     lastActivity = "comment";
                     lastActivityDate = commentDate;
                     lastActivityAuthor = comment.author.login;
                   }
-                  
-                  // Check replies to this comment
                   if (comment.replies && comment.replies.nodes) {
                     for (const reply of comment.replies.nodes) {
                       const replyDate = new Date(reply.createdAt);
-                      
-                      // Check if this reply is more recent than what we've found so far
                       if (!lastActivityDate || replyDate > lastActivityDate) {
                         lastActivity = "reply";
                         lastActivityDate = replyDate;
@@ -208,14 +209,14 @@ jobs:
 
                 console.log(`Last activity on discussion #${discussionNumber} was a ${lastActivity} from ${lastActivityAuthor} on ${lastActivityDate}`);
 
-                // Check if the last activity is by a team member and older than one week
+                // Check if the last activity is by a collaborator with write access and older than one week
                 const now = new Date();
 
                 if (
-                  teamHandles.includes(lastActivityAuthor) &&
+                  collaborators.includes(lastActivityAuthor) &&
                   (now.getTime() - lastActivityDate.getTime() > ONE_WEEK_MS)
                 ) {
-                  console.log(`Discussion #${discussionNumber} qualifies for closure. Last activity was from team member ${lastActivityAuthor} more than a week ago.`);
+                  console.log(`Discussion #${discussionNumber} qualifies for closure. Last activity was from collaborator ${lastActivityAuthor} more than a week ago.`);
 
                   // 5. Add a closing comment using GraphQL
                   try {
@@ -235,12 +236,11 @@ jobs:
                   } catch (commentError) {
                     console.error(`Error posting comment: ${commentError.message}`);
                     if (commentError.response) console.error(JSON.stringify(commentError.response, null, 2));
-                    continue; // Skip further processing if comment fails
+                    continue;
                   }
 
                   // 6. Remove target labels using GraphQL removeLabelsFromLabelable mutation
                   try {
-                    // Get label IDs to remove
                     const labelsToRemove = discussion.labels.nodes
                       .filter(label => targetLabels.includes(label.name))
                       .map(label => label.id);
