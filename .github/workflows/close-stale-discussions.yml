@@ -27,6 +27,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TEAM_HANDLES: "nurul3101"  # Replace with your comma-separated GitHub handles
           CLOSING_MESSAGE: "Closing this discussion due to inactivity. Please reopen if needed."
+          TS_NODE_ESM: "false"   # Force ts-node to run in CommonJS mode
         run: |
           cat > close-discussions.ts <<'EOF'
           const { Octokit } = require("@octokit/rest");
