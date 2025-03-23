@@ -28,7 +28,6 @@ jobs:
       - name: Run inline Discussion Cleanup Script
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TEAM_HANDLES: "nurul3101"  # This env var is no longer used
           CLOSING_MESSAGE: "Closing this discussion due to inactivity. Please reopen if needed."
         run: |
           cat > close-discussions.js <<'EOF'
@@ -52,7 +51,7 @@ jobs:
               console.error("GITHUB_TOKEN not set");
               process.exit(1);
             }
-            // TEAM_HANDLES is no longer used
+
             const closingMessage = process.env.CLOSING_MESSAGE || "Closing discussion due to inactivity.";
 
             const octokit = new Octokit({
@@ -81,13 +80,12 @@ jobs:
                 repo: REPO,
                 affiliation: 'direct'
               });
-              console.log('collabResponse', collabResponse)
+              console.log('collabResponse', JSON.stingify(collabResponse,null,2));
               const collaborators = collabResponse.data
                 .filter(user => user.permissions && user.permissions.push)
                 .map(user => user.login);
               console.log(`Found ${collaborators.length} collaborators with write access.`);
 
-              // NEW: Fetch all discussion categories to dynamically find the Q&A category
               const categoriesQuery = await graphqlWithAuth(`
                 query getCategories($repoId: ID!) {
                   node(id: $repoId) {
@@ -123,9 +121,6 @@ jobs:
                           body
                           createdAt
                           updatedAt
-                          category {
-                            name
-                          }
                           labels(first: 10) {
                             nodes {
                               id
