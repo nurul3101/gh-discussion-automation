@@ -29,7 +29,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PERSONAL_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-          CLOSING_MESSAGE: 'Hi, \n\n As we have not heard back from you, we are closing this discussion to keep our discussions organized. \n\n Feel free to start a new discussion if this remains relevant. \n\n Thank you for being part of the community!'
+          CLOSING_MESSAGE: |
+            Hi,
+
+            As we have not heard back from you, we are closing this discussion to keep our discussions organized.
+
+            Feel free to start a new discussion if this remains relevant.
+
+            Thank you for being part of the community!
         run: |
           cat > close-discussions.js <<'EOF'
           const { Octokit } = require("@octokit/rest");
