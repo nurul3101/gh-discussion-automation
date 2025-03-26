@@ -2,8 +2,8 @@ name: Auto Close Stale Discussions
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Runs daily at midnight UTC
-  workflow_dispatch:     # Enables manual run from the Actions tab
+    - cron: '0 0 * * *' # Runs daily at midnight UTC
+  workflow_dispatch: # Enables manual run from the Actions tab
 
 permissions:
   contents: read
@@ -28,7 +28,8 @@ jobs:
       - name: Run inline Discussion Cleanup Script
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CLOSING_MESSAGE: "Closing this discussion due to inactivity. Please reopen if needed."
+          PERSONAL_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          CLOSING_MESSAGE: 'Hi, \n\n As we have not heard back from you, we are closing this discussion to keep our discussions organized. \n\n Feel free to start a new discussion if this remains relevant. \n\n Thank you for being part of the community!'
         run: |
           cat > close-discussions.js <<'EOF'
           const { Octokit } = require("@octokit/rest");
@@ -47,8 +48,15 @@ jobs:
 
           async function run() {
             const token = process.env.GITHUB_TOKEN;
+            const personalToken = process.env.PERSONAL_TOKEN;
+
             if (!token) {
               console.error("GITHUB_TOKEN not set");
+              process.exit(1);
+            }
+
+            if (!personalToken) {
+              console.error("PERSONAL_ACCESS_TOKEN not set");
               process.exit(1);
             }
 
@@ -62,7 +70,7 @@ jobs:
             // Set up GraphQL client
             const graphqlWithAuth = graphql.defaults({
               headers: {
-                authorization: `token ${token}`,
+                authorization: `token ${personalToken}`,
               },
             });
 
