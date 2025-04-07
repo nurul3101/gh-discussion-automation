@@ -130,6 +130,7 @@ async function run() {
     // 3. Filter open discussions that have at least one of the target labels
     const targetLabels = ['discussion/needs-information', 'discussion/needs-confirmation']
     const filteredDiscussions = discussions.filter((discussion) => {
+      console.log("Discussion number", discussion.number);
       if (!discussion.labels.nodes || discussion.labels.nodes.length === 0) return false
       const labels = discussion.labels.nodes.map((label) => label.name)
       return targetLabels.some((target) => labels.includes(target))
