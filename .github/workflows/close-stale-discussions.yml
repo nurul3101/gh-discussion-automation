@@ -34,7 +34,7 @@ jobs:
 
       - name: Run inline Discussion Cleanup Script
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           CLOSING_MESSAGE: |
             Hi,
 
