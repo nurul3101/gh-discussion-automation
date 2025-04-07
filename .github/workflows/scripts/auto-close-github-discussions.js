@@ -47,7 +47,6 @@ async function run() {
     const collabResponse = await octokit.repos.listCollaborators({
       owner: OWNER,
       repo: REPO,
-      affiliation: 'direct',
     })
     console.log('collabResponse', collabResponse);
 
