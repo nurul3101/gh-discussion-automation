@@ -15,7 +15,7 @@ const REPO = 'prisma'
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 async function run() {
-  const token = process.env.GITHUB_TOKEN
+  const token = process.env.PERSONAL_ACCESS_TOKEN
   if (!token) {
     console.error('GITHUB_TOKEN not set')
     process.exit(1)
