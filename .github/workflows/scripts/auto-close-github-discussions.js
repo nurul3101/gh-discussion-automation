@@ -7,7 +7,9 @@ if (!repoInfo) {
   console.error('GITHUB_REPOSITORY environment variable not set')
   process.exit(1)
 }
-const [OWNER, REPO] = repoInfo.split('/')
+// const [OWNER, REPO] = repoInfo.split('/')
+const OWNER = 'prisma'
+const REPO = 'prisma'
 
 // ONE_WEEK_MS is set to one week (in milliseconds)
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000
@@ -40,13 +42,14 @@ async function run() {
       repo: REPO,
     })
     const repoId = repoData.data.node_id
-
+    console.log(`Repository ID: ${repoId}`)
     // NEW: Fetch collaborators with write (push) access
     const collabResponse = await octokit.repos.listCollaborators({
       owner: OWNER,
       repo: REPO,
       affiliation: 'direct',
     })
+    console.log('collabResponse', collabResponse);
 
     const collaborators = collabResponse.data
       .filter((user) => user.permissions && user.permissions.push)
@@ -126,7 +129,7 @@ async function run() {
     console.log(`Fetched ${discussions.length} discussions`)
 
     // 3. Filter open discussions that have at least one of the target labels
-    const targetLabels = ['needs-information', 'needs-confirmation']
+    const targetLabels = ['discussion/needs-information', 'discussion/needs-confirmation']
     const filteredDiscussions = discussions.filter((discussion) => {
       if (!discussion.labels.nodes || discussion.labels.nodes.length === 0) return false
       const labels = discussion.labels.nodes.map((label) => label.name)
@@ -183,77 +186,77 @@ async function run() {
           `Discussion #${discussionNumber} qualifies for closure. Last activity was from collaborator ${lastActivityAuthor} more than a week ago.`,
         )
 
-        // 5. Add a closing comment using GraphQL
-        try {
-          await graphqlWithAuth(
-            `mutation AddDiscussionComment($discussionId: ID!, $body: String!) {
-                addDiscussionComment(input: {discussionId: $discussionId, body: $body}) {
-                  comment {
-                    id
-                  }
-                }
-            }`,
-            {
-              discussionId: discussion.id,
-              body: closingMessage,
-            },
-          )
-          console.log(`Posted closing comment on discussion #${discussionNumber}.`)
-        } catch (commentError) {
-          console.error(`Error posting comment: ${commentError.message}`)
-          if (commentError.response) console.error(JSON.stringify(commentError.response, null, 2))
-          continue
-        }
+        // // 5. Add a closing comment using GraphQL
+        // try {
+        //   await graphqlWithAuth(
+        //     `mutation AddDiscussionComment($discussionId: ID!, $body: String!) {
+        //         addDiscussionComment(input: {discussionId: $discussionId, body: $body}) {
+        //           comment {
+        //             id
+        //           }
+        //         }
+        //     }`,
+        //     {
+        //       discussionId: discussion.id,
+        //       body: closingMessage,
+        //     },
+        //   )
+        //   console.log(`Posted closing comment on discussion #${discussionNumber}.`)
+        // } catch (commentError) {
+        //   console.error(`Error posting comment: ${commentError.message}`)
+        //   if (commentError.response) console.error(JSON.stringify(commentError.response, null, 2))
+        //   continue
+        // }
 
-        // 6. Remove target labels using GraphQL removeLabelsFromLabelable mutation
-        try {
-          const labelsToRemove = discussion.labels.nodes
-            .filter((label) => targetLabels.includes(label.name))
-            .map((label) => label.id)
+        // // 6. Remove target labels using GraphQL removeLabelsFromLabelable mutation
+        // try {
+        //   const labelsToRemove = discussion.labels.nodes
+        //     .filter((label) => targetLabels.includes(label.name))
+        //     .map((label) => label.id)
 
-          if (labelsToRemove.length > 0) {
-            await graphqlWithAuth(
-              `mutation RemoveLabels($labelableId: ID!, $labelIds: [ID!]!) {
-                  removeLabelsFromLabelable(input: {
-                    labelableId: $labelableId,
-                    labelIds: $labelIds
-                  }) {
-                    clientMutationId
-                  }
-              }`,
-              {
-                labelableId: discussion.id,
-                labelIds: labelsToRemove,
-              },
-            )
-            console.log(`Removed target labels from discussion #${discussionNumber}.`)
-          } else {
-            console.log(`No target labels to remove from discussion #${discussionNumber}.`)
-          }
-        } catch (labelError) {
-          console.error(`Error removing labels: ${labelError.message}`)
-          if (labelError.errors) console.error(JSON.stringify(labelError.errors, null, 2))
-        }
+        //   if (labelsToRemove.length > 0) {
+        //     await graphqlWithAuth(
+        //       `mutation RemoveLabels($labelableId: ID!, $labelIds: [ID!]!) {
+        //           removeLabelsFromLabelable(input: {
+        //             labelableId: $labelableId,
+        //             labelIds: $labelIds
+        //           }) {
+        //             clientMutationId
+        //           }
+        //       }`,
+        //       {
+        //         labelableId: discussion.id,
+        //         labelIds: labelsToRemove,
+        //       },
+        //     )
+        //     console.log(`Removed target labels from discussion #${discussionNumber}.`)
+        //   } else {
+        //     console.log(`No target labels to remove from discussion #${discussionNumber}.`)
+        //   }
+        // } catch (labelError) {
+        //   console.error(`Error removing labels: ${labelError.message}`)
+        //   if (labelError.errors) console.error(JSON.stringify(labelError.errors, null, 2))
+        // }
 
-        // 7. Close the discussion using GraphQL with the OUTDATED reason
-        try {
-          await graphqlWithAuth(
-            `mutation CloseDiscussion($discussionId: ID!) {
-              closeDiscussion(input: {discussionId: $discussionId, reason: OUTDATED}) {
-                discussion {
-                  id
-                }
-              }
-            }`,
-            {
-              discussionId: discussion.id,
-            },
-          )
-          console.log(`Closed discussion #${discussionNumber} as OUTDATED.`)
-        } catch (closeError) {
-          console.error(`Error closing discussion: ${closeError.message}`)
-          if (closeError.response) console.error(JSON.stringify(closeError.response, null, 2))
-        }
+        // // 7. Close the discussion using GraphQL with the OUTDATED reason
+        // try {
+        //   await graphqlWithAuth(
+        //     `mutation CloseDiscussion($discussionId: ID!) {
+        //       closeDiscussion(input: {discussionId: $discussionId, reason: OUTDATED}) {
+        //         discussion {
+        //           id
+        //         }
+        //       }
+        //     }`,
+        //     {
+        //       discussionId: discussion.id,
+        //     },
+        //   )
+        //   console.log(`Closed discussion #${discussionNumber} as OUTDATED.`)
+        // } catch (closeError) {
+        //   console.error(`Error closing discussion: ${closeError.message}`)
+        //   if (closeError.response) console.error(JSON.stringify(closeError.response, null, 2))
+        // }
       } else {
         console.log(`Discussion #${discussionNumber} does not qualify for closure.`)
       }
